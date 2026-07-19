@@ -1,0 +1,31 @@
+{
+  "student_id": "40400356",
+  "base_seed": 5,
+  "maze_size": 16,
+  "reward_mode": "shaping",
+  "gamma": 0.95,
+  "alpha": 0.18,
+  "epsilon_start": 1.0,
+  "epsilon_end": 0.05,
+  "episodes": 1800,
+  "evaluation_episodes": 250,
+  "max_steps_rule": "3 * number_of_passable_cells",
+  "value_iteration_tolerance": 1e-8,
+  "value_iteration_max_iterations": 10000,
+  "gate_period": 4,
+  "gate_open_phases": [0, 1],
+  "transition_probabilities": {
+    "intended": 0.8,
+    "perpendicular_left": 0.1,
+    "perpendicular_right": 0.1
+  },
+  "reward_values": {
+    "step": -0.1,
+    "wall": -1.0,
+    "penalty": -5.0,
+    "key": 20.0,
+    "locked_door": -3.0,
+    "goal": 100.0,
+    "shaping_scale": 1.0
+  }
+}
