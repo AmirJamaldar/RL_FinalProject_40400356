@@ -2,7 +2,7 @@
   "map": "environments/maps/source_map.json",
   "episodes": 1200,
   "seeds": [5, 15, 25, 35, 45],
-  "alpha": 0.16,
+  "alpha": 0.04,
   "gamma": 0.95,
   "lambda_values": [0.0, 0.3, 0.7, 0.9],
   "trace_type": "replacing",

@@ -1,0 +1,8 @@
+{
+  "best_epsilon_schedule": "exponential",
+  "best_lambda": 0.7,
+  "q_policy_agreement": 0.49649532710280375,
+  "sarsa_policy_agreement": 0.522196261682243,
+  "elapsed_seconds": 385.2199730950001,
+  "profile": "submission"
+}

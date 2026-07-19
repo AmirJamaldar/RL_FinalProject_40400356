@@ -1,0 +1,26 @@
+{
+  "profile": "submission",
+  "student_id": "40400356",
+  "base_seed": 5,
+  "maze_size": 16,
+  "episodes": 1200,
+  "seeds": [
+    5,
+    15,
+    25,
+    35,
+    45
+  ],
+  "transfer_episodes": 800,
+  "transfer_seeds": [
+    5,
+    25,
+    45
+  ],
+  "evaluation_episodes": 250,
+  "python": "3.13.5 (main, May  5 2026, 21:05:52) [GCC 14.2.0]",
+  "platform": "Linux-4.4.0-x86_64-with-glibc2.41",
+  "numpy": "2.3.5",
+  "pandas": "2.2.3",
+  "started_unix": 1784495045.461941
+}

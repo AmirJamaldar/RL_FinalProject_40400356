@@ -192,7 +192,7 @@ class RLProjectApp(tk.Tk):
                     result = train_q_learning(self.env.clone(seed=5), config, episode_callback=callback)
                     self.worker_queue.put(("complete", (result.q_values, policy_from_q(result.q_values), f"Q-Learning completed in {result.runtime_seconds:.1f}s")))
                 else:
-                    config = SarsaLambdaConfig(episodes=700, alpha=0.16, gamma=0.95, lambda_value=0.3, epsilon=EpsilonSchedule("exponential", 1.0, 0.05, 0.88), seed=5)
+                    config = SarsaLambdaConfig(episodes=700, alpha=0.04, gamma=0.95, lambda_value=0.7, epsilon=EpsilonSchedule("exponential", 1.0, 0.05, 0.88), seed=5)
                     result = train_sarsa_lambda(self.env.clone(seed=5), config, episode_callback=callback)
                     self.worker_queue.put(("complete", (result.q_values, policy_from_q(result.q_values), f"SARSA(lambda) completed in {result.runtime_seconds:.1f}s")))
             except TrainingStopped:

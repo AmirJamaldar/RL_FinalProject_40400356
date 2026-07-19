@@ -75,7 +75,7 @@ def run(profile: str) -> None:
 
     gamma = 0.95
     alpha_q = 0.22
-    alpha_sarsa = 0.16
+    alpha_sarsa = 0.04
     exp_schedule = EpsilonSchedule("exponential", 1.0, 0.05, 0.88)
     linear_schedule = EpsilonSchedule("linear", 1.0, 0.05, 0.88)
     experiment_started = time.perf_counter()
@@ -158,12 +158,31 @@ def run(profile: str) -> None:
     plot_learning_curves(q_schedule_data, group_column="epsilon_schedule", value="success", output_path=FIGURES / "q_epsilon_success.png", ylabel="Rolling success rate", title="Q-Learning epsilon schedules")
     plot_learning_curves(q_schedule_data, group_column="epsilon_schedule", value="return", output_path=FIGURES / "q_epsilon_return.png", ylabel="Rolling episodic return", title="Q-Learning epsilon schedules")
 
-    schedule_scores = (
-        q_schedule_data.groupby(["epsilon_schedule", "seed"], as_index=False)
-        .apply(lambda x: pd.Series(training_summary(x, tail=min(200, episodes // 4))), include_groups=False)
-        .reset_index(drop=True)
+    schedule_rank_rows = []
+    threshold_window = min(100, max(20, episodes // 4))
+    for (schedule_name, seed), group in q_schedule_data.groupby(["epsilon_schedule", "seed"]):
+        row = training_summary(group, tail=min(200, episodes // 4))
+        row.update(
+            {
+                "epsilon_schedule": schedule_name,
+                "seed": int(seed),
+                "episodes_to_80pct": episodes_to_threshold(group, threshold=0.80, window=threshold_window),
+            }
+        )
+        schedule_rank_rows.append(row)
+    schedule_scores = pd.DataFrame(schedule_rank_rows)
+    schedule_scores.to_csv(RAW / "q_epsilon_schedule_summary.csv", index=False)
+    schedule_aggregate = schedule_scores.groupby("epsilon_schedule").agg(
+        final_success=("final_success_rate", "mean"),
+        median_episodes_to_80pct=("episodes_to_80pct", "median"),
     )
-    best_schedule = str(schedule_scores.groupby("epsilon_schedule")["final_success_rate"].mean().sort_values(ascending=False).index[0])
+    max_final_success = float(schedule_aggregate["final_success"].max())
+    practically_tied = schedule_aggregate[schedule_aggregate["final_success"] >= max_final_success - 0.01]
+    best_schedule = str(
+        practically_tied.sort_values(
+            ["median_episodes_to_80pct", "final_success"], ascending=[True, False]
+        ).index[0]
+    )
     best_schedule_obj = linear_schedule if best_schedule == "linear" else exp_schedule
     representative_seed = seeds[0]
     plot_visitation_heatmap(
