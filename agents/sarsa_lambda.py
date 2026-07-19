@@ -55,7 +55,9 @@ def train_sarsa_lambda(
         epsilon = config.epsilon.value(episode, config.episodes)
         state, _ = env.reset(seed=int(rng.integers(0, 2**31 - 1)), phase=episode % env.gate_period)
         action = epsilon_greedy(q, state, epsilon, rng)
-        traces: dict[tuple[int, int, int, int, int], float] = {}
+        eligibility = np.zeros(q.size, dtype=np.float64)
+        active = np.zeros(q.size, dtype=bool)
+        q_flat = q.reshape(-1)
         total_reward = 0.0
         counters = {"wall_hits": 0, "penalty_entries": 0, "gate_blocks": 0}
         terminated = truncated = False
@@ -68,22 +70,29 @@ def train_sarsa_lambda(
             bootstrap = 0.0 if terminated or truncated else float(q[next_state + (int(next_action),)])
             delta = float(reward + config.gamma * bootstrap - q_before)
 
+            flat_index = int(np.ravel_multi_index(current_key, q.shape))
             if config.trace_type == "replacing":
-                traces[current_key] = 1.0
+                eligibility[flat_index] = 1.0
             else:
-                traces[current_key] = traces.get(current_key, 0.0) + 1.0
+                eligibility[flat_index] += 1.0
+            active[flat_index] = True
 
-            active_before = len(traces)
-            for key, eligibility in list(traces.items()):
-                q[key] += config.alpha * delta * eligibility
-                new_value = config.gamma * config.lambda_value * eligibility
-                if abs(new_value) < config.trace_prune_threshold:
-                    del traces[key]
-                else:
-                    traces[key] = new_value
+            active_indices = np.flatnonzero(active)
+            active_before = int(active_indices.size)
+            q_flat[active_indices] += config.alpha * delta * eligibility[active_indices]
+            eligibility[active_indices] *= config.gamma * config.lambda_value
+            expired = active_indices[np.abs(eligibility[active_indices]) < config.trace_prune_threshold]
+            if expired.size:
+                active[expired] = False
+                eligibility[expired] = 0.0
 
             if episode == trace_episode and env.steps <= trace_steps:
-                top = sorted(traces.items(), key=lambda item: abs(item[1]), reverse=True)[:6]
+                remaining = np.flatnonzero(active)
+                order = remaining[np.argsort(np.abs(eligibility[remaining]))[::-1][:6]]
+                top = [
+                    (np.unravel_index(int(index), q.shape), float(eligibility[index]))
+                    for index in order
+                ]
                 trace_records.append(
                     {
                         "episode": episode,
@@ -97,7 +106,7 @@ def train_sarsa_lambda(
                         "bootstrap": bootstrap,
                         "delta": delta,
                         "active_traces_before_decay": active_before,
-                        "active_traces_after_decay": len(traces),
+                        "active_traces_after_decay": int(np.count_nonzero(active)),
                         "top_traces": str([(str(k), round(v, 8)) for k, v in top]),
                     }
                 )

@@ -47,38 +47,60 @@ def value_iteration(
     tolerance: float = 1e-8,
     max_iterations: int = 10_000,
 ) -> ValueIterationResult:
+    """Run synchronous Value Iteration using a precomputed tabular model.
+
+    The Bellman backup itself is vectorized, but the transition model is still
+    generated independently from ``DynamicMazeEnv.transition_outcomes``.
+    No RL or planning library is used.
+    """
     if not np.isclose(env.gamma, gamma):
         env = env.clone(gamma=gamma)
     values, q_values, policy = _empty_arrays(env)
     states = env.states()
+    state_to_index = {state: i for i, state in enumerate(states)}
+    n_states = len(states)
+    max_branches = 3
+    probabilities = np.zeros((n_states, env.action_space_n, max_branches), dtype=np.float64)
+    rewards = np.zeros_like(probabilities)
+    next_indices = np.zeros((n_states, env.action_space_n, max_branches), dtype=np.int32)
+    nonterminal = np.zeros_like(probabilities)
+    terminal_mask = np.array([env.is_terminal(state) for state in states], dtype=bool)
+
+    for i, state in enumerate(states):
+        for action in Action:
+            outcomes = env.transition_outcomes(state, action)
+            for branch, transition in enumerate(outcomes):
+                probabilities[i, int(action), branch] = transition.probability
+                rewards[i, int(action), branch] = transition.reward
+                next_indices[i, int(action), branch] = state_to_index[transition.next_state]
+                nonterminal[i, int(action), branch] = 0.0 if transition.terminated else 1.0
+
+    v = np.zeros(n_states, dtype=np.float64)
     started = time.perf_counter()
     converged = False
     delta = float("inf")
     iteration = 0
-
     for iteration in range(1, max_iterations + 1):
-        old = values.copy()
-        delta = 0.0
-        for state in states:
-            if env.is_terminal(state):
-                values[state] = 0.0
-                continue
-            candidates = [state_action_value(env, old, state, action, gamma) for action in Action]
-            new_value = max(candidates)
-            values[state] = new_value
-            delta = max(delta, abs(new_value - old[state]))
+        continuation = v[next_indices]
+        q_table = np.sum(probabilities * (rewards + gamma * nonterminal * continuation), axis=2)
+        new_v = np.max(q_table, axis=1)
+        new_v[terminal_mask] = 0.0
+        delta = float(np.max(np.abs(new_v - v)))
+        v = new_v
         if delta < tolerance:
             converged = True
             break
 
-    for state in states:
-        if env.is_terminal(state):
-            q_values[state] = 0.0
-            policy[state] = -1
-            continue
-        for action in Action:
-            q_values[state + (int(action),)] = state_action_value(env, values, state, int(action), gamma)
-        policy[state] = int(np.argmax(q_values[state]))
+    final_continuation = v[next_indices]
+    final_q = np.sum(probabilities * (rewards + gamma * nonterminal * final_continuation), axis=2)
+    final_q[terminal_mask, :] = 0.0
+    final_policy = np.argmax(final_q, axis=1).astype(np.int8)
+    final_policy[terminal_mask] = -1
+
+    for i, state in enumerate(states):
+        values[state] = v[i]
+        q_values[state] = final_q[i]
+        policy[state] = final_policy[i]
 
     runtime = time.perf_counter() - started
     return ValueIterationResult(

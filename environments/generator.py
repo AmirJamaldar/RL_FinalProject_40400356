@@ -139,27 +139,27 @@ def validate_map(grid: Sequence[Sequence[str]]) -> dict[str, object]:
 
 def _protected_source_paths(grid: np.ndarray, n: int) -> set[tuple[int, int]]:
     start = (n - 2, 2)
-    key = (2, 3)
+    key = (n - 5, 4)
     door = (10 if n >= 16 else 9, 7)
     gate = (7, 10)
-    goal = (2, n - 3)
+    goal = (3, n - 3)
     detour_gap = (7, n - 2)
 
     protected: set[tuple[int, int]] = set()
     for a, b in (
-        (start, (2, 2)),
-        ((2, 2), key),
-        (key, (2, 6)),
-        ((2, 6), (door[0], 6)),
+        (start, (n - 5, 2)),
+        ((n - 5, 2), key),
+        (key, (door[0], 4)),
+        ((door[0], 4), (door[0], 6)),
         ((door[0], 6), door),
         (door, (door[0], 10)),
         ((door[0], 10), gate),
-        (gate, (2, 10)),
-        ((2, 10), goal),
+        (gate, (3, 10)),
+        ((3, 10), goal),
         ((door[0], 10), (door[0], n - 2)),
         ((door[0], n - 2), detour_gap),
-        (detour_gap, (2, n - 2)),
-        ((2, n - 2), goal),
+        (detour_gap, (3, n - 2)),
+        ((3, n - 2), goal),
     ):
         protected |= _carve_segment(grid, a, b)
     return protected
@@ -195,8 +195,8 @@ def generate_source_map(student_id: str = "40400356") -> dict[str, object]:
     protected.update({door, gate, detour_gap})
 
     start = (n - 2, 2)
-    key = (2, 3)
-    goal = (2, n - 3)
+    key = (n - 5, 4)
+    goal = (3, n - 3)
 
     # Add seeded internal obstacles while preserving the guaranteed routes.
     candidates = [

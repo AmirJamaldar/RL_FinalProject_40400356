@@ -21,6 +21,8 @@ class QLearningConfig:
     epsilon: EpsilonSchedule = EpsilonSchedule()
     seed: int = 5
     log_all_events_for_first_n_episodes: int = 3
+    collect_events: bool = True
+    max_update_trace_rows: int = 50
 
 
 @dataclass
@@ -31,6 +33,7 @@ class QLearningResult:
     update_trace: pd.DataFrame
     event_records: list[dict[str, object]]
     watch_trace: pd.DataFrame
+    visitation_counts: np.ndarray
 
 
 def q_learning_update(
@@ -76,6 +79,7 @@ def train_q_learning(
     updates: list[dict[str, object]] = []
     events: list[dict[str, object]] = []
     watched: list[dict[str, object]] = []
+    visitation_counts = np.zeros((env.size, env.size), dtype=np.int64)
     started = time.perf_counter()
 
     for episode in range(config.episodes):
@@ -92,6 +96,7 @@ def train_q_learning(
         }
         terminated = truncated = False
         while not (terminated or truncated):
+            visitation_counts[state[0], state[1]] += 1
             action = epsilon_greedy(q, state, epsilon, rng)
             next_state, reward, terminated, truncated, info = env.step(action)
             update = q_learning_update(
@@ -104,7 +109,7 @@ def train_q_learning(
                 alpha=config.alpha,
                 gamma=config.gamma,
             )
-            if len(updates) < 50:
+            if len(updates) < config.max_update_trace_rows:
                 updates.append(
                     {
                         "episode": episode,
@@ -124,7 +129,7 @@ def train_q_learning(
             counters["gate_blocks"] += int(event == "periodic_gate_blocked")
             counters["key_collected"] += int(event == "key_collected")
             counters["door_crossings"] += int(event == "door_crossed")
-            if episode < config.log_all_events_for_first_n_episodes or event != "normal_move":
+            if config.collect_events and (episode < config.log_all_events_for_first_n_episodes or event != "normal_move"):
                 events.append(
                     {
                         "algorithm": "q_learning",
@@ -140,8 +145,9 @@ def train_q_learning(
             total_reward += reward
             state = next_state
 
-        events.append(
-            {
+        if config.collect_events:
+            events.append(
+                {
                 "algorithm": "q_learning",
                 "episode": episode,
                 "step": env.steps,
@@ -173,4 +179,5 @@ def train_q_learning(
         update_trace=pd.DataFrame(updates),
         event_records=events,
         watch_trace=pd.DataFrame(watched),
+        visitation_counts=visitation_counts,
     )

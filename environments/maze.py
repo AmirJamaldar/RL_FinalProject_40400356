@@ -38,13 +38,13 @@ State = tuple[int, int, int, int]  # row, column, has_key, gate_phase
 
 @dataclass(frozen=True)
 class RewardConfig:
-    step: float = -0.10
-    wall: float = -1.00
-    penalty: float = -5.00
-    key: float = 20.00
-    locked_door: float = -3.00
-    goal: float = 100.00
-    shaping_scale: float = 1.00
+    step: float = -0.50
+    wall: float = -1.50
+    penalty: float = -7.00
+    key: float = 25.00
+    locked_door: float = -4.00
+    goal: float = 120.00
+    shaping_scale: float = 0.20
 
 
 class Transition(NamedTuple):

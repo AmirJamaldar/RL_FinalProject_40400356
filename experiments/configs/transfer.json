@@ -1,0 +1,20 @@
+{
+  "source_map": "environments/maps/source_map.json",
+  "target_maps": [
+    "environments/maps/target_similar_map.json",
+    "environments/maps/target_different_map.json"
+  ],
+  "episodes": 800,
+  "seeds": [5, 25, 45],
+  "scenarios": [
+    "scratch",
+    "full",
+    "scaled_beta_0.25",
+    "scaled_beta_0.50",
+    "scaled_beta_0.75",
+    "selective"
+  ],
+  "alpha": 0.22,
+  "gamma": 0.95,
+  "evaluation_episodes": 250
+}
