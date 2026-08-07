@@ -1,8 +1,0 @@
-{"event": "wall_collision", "state": [1, 1, 0, 0], "chosen_action": 0, "realized_action": 0, "probability": 0.8, "next_state": [1, 1, 0, 1], "reward": -1.6599999999999995, "terminated": false}
-{"event": "normal_move", "state": [1, 1, 0, 0], "chosen_action": 0, "realized_action": 3, "probability": 0.1, "next_state": [1, 2, 0, 1], "reward": 0.03000000000000047, "terminated": false}
-{"event": "penalty_cell_entered", "state": [2, 12, 0, 0], "chosen_action": 1, "realized_action": 1, "probability": 0.8, "next_state": [3, 12, 0, 1], "reward": -6.97, "terminated": false}
-{"event": "goal_reached", "state": [2, 13, 1, 0], "chosen_action": 1, "realized_action": 1, "probability": 0.8, "next_state": [3, 13, 1, 1], "reward": 119.7, "terminated": true}
-{"event": "key_collected", "state": [10, 4, 0, 0], "chosen_action": 1, "realized_action": 1, "probability": 0.8, "next_state": [11, 4, 1, 1], "reward": 24.87, "terminated": false}
-{"event": "locked_door_attempt", "state": [10, 6, 0, 0], "chosen_action": 0, "realized_action": 3, "probability": 0.1, "next_state": [10, 6, 0, 1], "reward": -4.3, "terminated": false}
-{"event": "door_crossed", "state": [10, 6, 1, 0], "chosen_action": 0, "realized_action": 3, "probability": 0.1, "next_state": [10, 7, 1, 1], "reward": -0.16999999999999993, "terminated": false}
-{"event": "step_limit_reached", "state": [14, 2, 0, 0], "chosen_action": 0, "next_state": [13, 2, 0, 1], "reward": -7.09, "terminated": false, "truncated": true, "info": {"event": "step_limit_reached", "chosen_action": 0, "chosen_action_name": "up", "realized_action": 0, "realized_action_name": "up", "has_key": false, "gate_open": true, "steps": 1, "episode_return": -7.09, "terminated": false, "truncated": true, "success": false}}

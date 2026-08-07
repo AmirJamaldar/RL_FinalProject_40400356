@@ -1,0 +1,15 @@
+{
+  "covered_events": [
+    "closed_door_attempt",
+    "door_passed",
+    "goal_reached",
+    "key_collected",
+    "max_steps_truncation",
+    "normal_move",
+    "penalty_entry",
+    "wall_collision"
+  ],
+  "natural_evaluation_episodes": 10,
+  "rare_event_probes": 2,
+  "record_count": 273
+}

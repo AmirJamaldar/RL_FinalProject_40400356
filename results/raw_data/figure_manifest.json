@@ -1,0 +1,49 @@
+{
+  "algorithm_comparison.png": [
+    "results/raw_data/run_summary.csv"
+  ],
+  "maps.png": [
+    "environments/maps/*_map.json"
+  ],
+  "policy_mismatch.png": [
+    "results/models/vi_shaped_reference.npz",
+    "results/models/q_shaped_linear_seed_5.npz",
+    "results/models/sarsa_shaped_lambda_0p7_seed_5.npz"
+  ],
+  "q_epsilon_schedules.png": [
+    "results/raw_data/training_episodes.csv"
+  ],
+  "q_final_trajectory.png": [
+    "results/raw_data/representative_paths.json"
+  ],
+  "q_visitation.png": [
+    "results/models/q_shaped_linear_seed_5.npz"
+  ],
+  "reward_design_comparison.png": [
+    "results/raw_data/training_episodes.csv",
+    "results/raw_data/reward_design_verification.json"
+  ],
+  "sarsa_lambda_sensitivity.png": [
+    "results/raw_data/training_episodes.csv"
+  ],
+  "transfer_learning_curves.png": [
+    "results/raw_data/transfer_episodes.csv"
+  ],
+  "transfer_performance.png": [
+    "results/raw_data/transfer_summary.csv"
+  ],
+  "transfer_q_change.png": [
+    "results/models/q_shaped_linear_seed_5.npz",
+    "results/models/transfer_similar_full_seed_5.npz",
+    "results/models/transfer_different_full_seed_5.npz"
+  ],
+  "value_heatmap.png": [
+    "results/models/vi_shaped_reference.npz"
+  ],
+  "value_iteration_policy.png": [
+    "results/models/vi_shaped_reference.npz"
+  ],
+  "vi_gamma_sensitivity.png": [
+    "results/raw_data/vi_gamma_sensitivity.csv"
+  ]
+}

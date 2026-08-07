@@ -1,50 +1,88 @@
-"""Stochastic dynamic maze environment and exact transition model."""
+"""Stochastic Markov environment for the key-door-goal maze."""
+
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from dataclasses import dataclass
-from enum import IntEnum
+from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
-from typing import Iterable, NamedTuple
+from typing import NamedTuple
 
 import numpy as np
 
-from environments.generator import DOOR, GATE, GOAL, KEY, NORMAL, PENALTY, START, WALL, load_map
+from .generator import (
+    ACTION_DELTAS,
+    DOOR,
+    FLOOR,
+    GOAL,
+    KEY,
+    PENALTY,
+    PORTAL_A,
+    PORTAL_B,
+    WALL,
+    MazeMap,
+    shortest_mission_distance,
+)
 
 
-class Action(IntEnum):
-    UP = 0
-    DOWN = 1
-    LEFT = 2
-    RIGHT = 3
-
-
-ACTION_DELTAS: dict[Action, tuple[int, int]] = {
-    Action.UP: (-1, 0),
-    Action.DOWN: (1, 0),
-    Action.LEFT: (0, -1),
-    Action.RIGHT: (0, 1),
+ACTION_NAMES = ("up", "down", "left", "right")
+PERPENDICULAR_ACTIONS = {
+    0: (2, 3),
+    1: (2, 3),
+    2: (0, 1),
+    3: (0, 1),
 }
-ACTION_NAMES = {Action.UP: "up", Action.DOWN: "down", Action.LEFT: "left", Action.RIGHT: "right"}
-PERPENDICULAR = {
-    Action.UP: (Action.LEFT, Action.RIGHT),
-    Action.DOWN: (Action.LEFT, Action.RIGHT),
-    Action.LEFT: (Action.UP, Action.DOWN),
-    Action.RIGHT: (Action.UP, Action.DOWN),
+REQUIRED_EVENTS = {
+    "normal_move",
+    "wall_collision",
+    "penalty_entry",
+    "key_collected",
+    "closed_door_attempt",
+    "door_passed",
+    "goal_reached",
+    "max_steps_truncation",
 }
 
-State = tuple[int, int, int, int]  # row, column, has_key, gate_phase
+State = tuple[int, int, int]
 
 
 @dataclass(frozen=True)
-class RewardConfig:
-    step: float = -0.50
-    wall: float = -1.50
-    penalty: float = -7.00
-    key: float = 25.00
-    locked_door: float = -4.00
-    goal: float = 120.00
-    shaping_scale: float = 0.20
+class RewardSpec:
+    step: float = -1.0
+    wall_collision: float = -4.0
+    penalty_entry: float = -10.0
+    key_collected: float = 30.0
+    closed_door_attempt: float = -7.0
+    # Door passage is logged but deliberately carries no repeatable bonus;
+    # otherwise oscillating across the door becomes a reward-farming exploit.
+    door_passed: float = 0.0
+    goal_reached: float = 100.0
+    # Keeps ordinary shaped moves non-positive on this map while retaining the
+    # policy-invariance guarantee of potential-based shaping.
+    shaping_scale: float = 0.25
+
+    def __post_init__(self) -> None:
+        values = np.asarray(
+            [
+                self.step,
+                self.wall_collision,
+                self.penalty_entry,
+                self.key_collected,
+                self.closed_door_attempt,
+                self.door_passed,
+                self.goal_reached,
+                self.shaping_scale,
+            ],
+            dtype=np.float64,
+        )
+        if not np.all(np.isfinite(values)):
+            raise ValueError("All reward parameters must be finite")
+        if self.shaping_scale < 0:
+            raise ValueError("shaping_scale must be non-negative")
+
+    @classmethod
+    def from_dict(cls, values: dict | None) -> "RewardSpec":
+        return cls(**(values or {}))
 
 
 class Transition(NamedTuple):
@@ -52,275 +90,300 @@ class Transition(NamedTuple):
     next_state: State
     reward: float
     terminated: bool
-    event: str
-    realized_action: int
+    events: tuple[str, ...]
+    executed_action: int
+
+
+class EventLogger:
+    """Append-only JSONL logger for actual sampled transitions."""
+
+    def __init__(self, path: str | Path, *, mode: str = "w"):
+        if mode not in {"w", "a"}:
+            raise ValueError("EventLogger mode must be 'w' or 'a'")
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = self.path.open(mode, encoding="utf-8")
+
+    def write(self, record: dict) -> None:
+        self._handle.write(json.dumps(record, sort_keys=True) + "\n")
+        self._handle.flush()
+
+    def close(self) -> None:
+        if not self._handle.closed:
+            self._handle.close()
+
+    def __enter__(self) -> "EventLogger":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
 
 
 class DynamicMazeEnv:
-    """A reproducible, model-queryable stochastic maze.
+    """A lightweight Gym-like environment with explicit termination semantics.
 
-    The stationary MDP state is (row, column, has_key, gate_phase).  The
-    episode step cap is implemented as a TimeLimit-style truncation wrapper;
-    it is deliberately not part of the stationary state used by Value
-    Iteration.
+    State is ``(row, column, has_key)``.  The teleporter is static and fully
+    encoded by the current position and map, so it adds no hidden state.
     """
 
     action_space_n = 4
 
     def __init__(
         self,
-        map_path: str | Path,
+        maze: MazeMap,
         *,
-        reward_mode: str = "sparse",
+        reward_mode: str = "shaped",
+        reward_spec: RewardSpec | dict | None = None,
         gamma: float = 0.95,
-        reward_config: RewardConfig | None = None,
-        seed: int = 0,
         max_steps: int | None = None,
+        seed: int | None = None,
+        event_logger: EventLogger | None = None,
     ) -> None:
-        if reward_mode not in {"sparse", "shaping"}:
-            raise ValueError("reward_mode must be 'sparse' or 'shaping'")
-        self.map_path = Path(map_path)
-        self.map_data = load_map(self.map_path)
-        self.grid = np.array([list(row) for row in self.map_data["grid"]], dtype="U1")
-        self.size = int(self.map_data["metadata"]["size"])
-        self.gate_period = int(self.map_data["metadata"].get("gate_period", 4))
-        self.gate_open_phases = tuple(int(x) for x in self.map_data["metadata"].get("gate_open_phases", [0, 1]))
+        if reward_mode not in {"sparse", "shaped"}:
+            raise ValueError("reward_mode must be 'sparse' or 'shaped'")
+        if not 0.0 <= gamma < 1.0:
+            raise ValueError("gamma must lie in [0, 1)")
+        self.maze = maze
         self.reward_mode = reward_mode
-        self.gamma = float(gamma)
-        self.rewards = reward_config or RewardConfig()
-        self.rng = np.random.default_rng(seed)
-
-        self.start_pos = self._find(START)
-        self.key_pos = self._find(KEY)
-        self.door_pos = self._find(DOOR)
-        self.goal_pos = self._find(GOAL)
-        self.gate_pos = self._find(GATE)
-        self.valid_positions = [
-            (r, c) for r in range(self.size) for c in range(self.size) if self.grid[r, c] != WALL
-        ]
-        self.max_steps = max_steps or (3 * len(self.valid_positions))
-        self._distance_to_key = self._all_distances(self.key_pos)
-        self._distance_to_goal = self._all_distances(self.goal_pos)
-        self._key_to_goal = self._distance_to_goal.get(self.key_pos, self.size * self.size)
-        self.state: State = (self.start_pos[0], self.start_pos[1], 0, 0)
-        self.steps = 0
-        self.episode_return = 0.0
-        self.last_info: dict[str, object] = {}
-
-    def _find(self, symbol: str) -> tuple[int, int]:
-        positions = np.argwhere(self.grid == symbol)
-        if len(positions) != 1:
-            raise ValueError(f"expected one {symbol}, found {len(positions)}")
-        return tuple(int(x) for x in positions[0])
-
-    def clone(self, *, seed: int | None = None, reward_mode: str | None = None, gamma: float | None = None) -> "DynamicMazeEnv":
-        return DynamicMazeEnv(
-            self.map_path,
-            reward_mode=reward_mode or self.reward_mode,
-            gamma=self.gamma if gamma is None else gamma,
-            reward_config=self.rewards,
-            seed=0 if seed is None else seed,
-            max_steps=self.max_steps,
+        self.reward_spec = (
+            reward_spec if isinstance(reward_spec, RewardSpec) else RewardSpec.from_dict(reward_spec)
         )
+        self.gamma = float(gamma)
+        self.max_steps = int(3 * maze.walkable_count if max_steps is None else max_steps)
+        if self.max_steps <= 0:
+            raise ValueError("max_steps must be positive")
+        self.rng = np.random.default_rng(seed)
+        self.event_logger = event_logger
+        self.episode_index = -1
+        self.state: State = (maze.start[0], maze.start[1], 0)
+        self.step_count = 0
+        self.total_reward = 0.0
+        self._episode_done = False
+        self._potential_cache: dict[State, float] = {}
 
-    def _all_distances(self, target: tuple[int, int]) -> dict[tuple[int, int], int]:
-        """Static shortest-path distances with the door/gate treated as traversable."""
-        q: deque[tuple[int, int]] = deque([target])
-        dist = {target: 0}
-        while q:
-            r, c = q.popleft()
-            for dr, dc in ACTION_DELTAS.values():
-                nr, nc = r + dr, c + dc
-                if not (0 <= nr < self.size and 0 <= nc < self.size):
-                    continue
-                if self.grid[nr, nc] == WALL or (nr, nc) in dist:
-                    continue
-                dist[(nr, nc)] = dist[(r, c)] + 1
-                q.append((nr, nc))
-        return dist
+    @property
+    def start_state(self) -> State:
+        return self.maze.start[0], self.maze.start[1], 0
 
-    def potential(self, state: State) -> float:
-        r, c, has_key, _phase = state
-        if (r, c) == self.goal_pos and has_key:
-            return 0.0
-        fallback = self.size * self.size
-        if has_key:
-            return -float(self._distance_to_goal.get((r, c), fallback))
-        return -float(self._distance_to_key.get((r, c), fallback) + self._key_to_goal)
+    @property
+    def terminal_state(self) -> State:
+        return self.maze.goal[0], self.maze.goal[1], 1
 
-    def is_gate_open(self, phase: int) -> bool:
-        return int(phase) % self.gate_period in self.gate_open_phases
+    @property
+    def q_shape(self) -> tuple[int, int, int, int]:
+        return (2, self.maze.height, self.maze.width, 4)
 
-    def is_terminal(self, state: State) -> bool:
-        r, c, has_key, _phase = state
-        return bool(has_key and (r, c) == self.goal_pos)
+    @property
+    def value_shape(self) -> tuple[int, int, int]:
+        return (2, self.maze.height, self.maze.width)
 
-    def reset(self, *, seed: int | None = None, phase: int = 0) -> tuple[State, dict[str, object]]:
+    def reset(self, *, seed: int | None = None) -> tuple[State, dict]:
         if seed is not None:
             self.rng = np.random.default_rng(seed)
-        self.state = (self.start_pos[0], self.start_pos[1], 0, int(phase) % self.gate_period)
-        self.steps = 0
-        self.episode_return = 0.0
-        self.last_info = {
-            "event": "episode_start",
+        self.episode_index += 1
+        self.state = self.start_state
+        self.step_count = 0
+        self.total_reward = 0.0
+        self._episode_done = False
+        return self.state, {
+            "episode": self.episode_index,
+            "max_steps": self.max_steps,
             "has_key": False,
-            "gate_open": self.is_gate_open(phase),
-            "terminated": False,
-            "truncated": False,
         }
-        return self.state, dict(self.last_info)
 
-    def _deterministic_transition(self, state: State, realized_action: Action) -> tuple[State, float, bool, str]:
-        if self.is_terminal(state):
-            return state, 0.0, True, "terminal_self_loop"
+    def is_terminal(self, state: State) -> bool:
+        return (state[0], state[1]) == self.maze.goal and state[2] == 1
 
-        r, c, has_key, phase = state
-        dr, dc = ACTION_DELTAS[realized_action]
-        nr, nc = r + dr, c + dc
-        next_phase = (phase + 1) % self.gate_period
-        event = "normal_move"
-        base_reward = self.rewards.step
+    def _validate_state(self, state: State) -> None:
+        if not isinstance(state, tuple) or len(state) != 3:
+            raise ValueError("State must be a (row, column, has_key) tuple")
+        row, col, has_key = state
+        if not all(isinstance(value, (int, np.integer)) for value in state):
+            raise ValueError("State entries must be integers")
+        if has_key not in (0, 1):
+            raise ValueError("State has_key must be 0 or 1")
+        if not (0 <= row < self.maze.height and 0 <= col < self.maze.width):
+            raise ValueError("State position is outside the maze")
+        if self.maze.tile((int(row), int(col))) == WALL:
+            raise ValueError("State cannot occupy a wall")
 
-        tile = WALL
-        if 0 <= nr < self.size and 0 <= nc < self.size:
-            tile = self.grid[nr, nc]
-
-        blocked = False
-        if tile == WALL:
-            blocked = True
-            event = "wall_collision"
-            base_reward += self.rewards.wall
-        elif tile == DOOR and not has_key:
-            blocked = True
-            event = "locked_door_attempt"
-            base_reward += self.rewards.locked_door
-        elif tile == GATE and not self.is_gate_open(phase):
-            blocked = True
-            event = "periodic_gate_blocked"
-            base_reward += self.rewards.wall
-
-        if blocked:
-            next_state = (r, c, has_key, next_phase)
-        else:
-            next_has_key = has_key
-            if tile == KEY and not has_key:
-                next_has_key = 1
-                event = "key_collected"
-                base_reward += self.rewards.key
-            elif tile == PENALTY:
-                event = "penalty_cell_entered"
-                base_reward += self.rewards.penalty
-            elif tile == DOOR and has_key:
-                event = "door_crossed"
-            elif tile == GATE:
-                event = "periodic_gate_crossed"
-            elif tile == GOAL and has_key:
-                event = "goal_reached"
-                base_reward += self.rewards.goal
-            next_state = (nr, nc, next_has_key, next_phase)
-
-        terminated = self.is_terminal(next_state)
-        if self.reward_mode == "shaping":
-            shaping = self.rewards.shaping_scale * (
-                self.gamma * self.potential(next_state) - self.potential(state)
-            )
-            base_reward += shaping
-        return next_state, float(base_reward), terminated, event
-
-    def transition_outcomes(self, state: State, action: int | Action) -> list[Transition]:
-        """Return the exact P(s', r | s, a), merging identical outcomes."""
-        action = Action(int(action))
-        branches = [(action, 0.8), (PERPENDICULAR[action][0], 0.1), (PERPENDICULAR[action][1], 0.1)]
-        merged: dict[tuple[State, float, bool, str, int], float] = defaultdict(float)
-        for realized, probability in branches:
-            ns, reward, terminated, event = self._deterministic_transition(state, realized)
-            key = (ns, reward, terminated, event, int(realized))
-            merged[key] += probability
-        return [
-            Transition(prob, ns, reward, terminated, event, realized)
-            for (ns, reward, terminated, event, realized), prob in merged.items()
+    def valid_states(self, *, include_terminal: bool = True) -> list[State]:
+        states = [
+            (row, col, key_status)
+            for key_status in (0, 1)
+            for row in range(self.maze.height)
+            for col in range(self.maze.width)
+            if self.maze.grid[row][col] != WALL
         ]
+        return states if include_terminal else [state for state in states if not self.is_terminal(state)]
 
-    def step(self, action: int | Action) -> tuple[State, float, bool, bool, dict[str, object]]:
-        action = Action(int(action))
-        draw = self.rng.random()
-        if draw < 0.8:
-            realized = action
-        elif draw < 0.9:
-            realized = PERPENDICULAR[action][0]
-        else:
-            realized = PERPENDICULAR[action][1]
-        next_state, reward, terminated, event = self._deterministic_transition(self.state, realized)
-        self.state = next_state
-        self.steps += 1
-        self.episode_return += reward
-        truncated = bool(not terminated and self.steps >= self.max_steps)
-        if truncated:
-            event = "step_limit_reached"
-        self.last_info = {
-            "event": event,
-            "chosen_action": int(action),
-            "chosen_action_name": ACTION_NAMES[action],
-            "realized_action": int(realized),
-            "realized_action_name": ACTION_NAMES[realized],
-            "has_key": bool(next_state[2]),
-            "gate_open": self.is_gate_open(next_state[3]),
-            "steps": self.steps,
-            "episode_return": self.episode_return,
-            "terminated": terminated,
-            "truncated": truncated,
-            "success": terminated,
-        }
-        return next_state, reward, terminated, truncated, dict(self.last_info)
+    def reachable_states(self, *, include_terminal: bool = True) -> list[State]:
+        """All states reachable with nonzero probability from reset."""
 
-    def states(self) -> list[State]:
-        return [
-            (r, c, has_key, phase)
-            for r, c in self.valid_positions
-            for has_key in (0, 1)
-            for phase in range(self.gate_period)
-        ]
-
-    def reachable_states(self) -> set[State]:
-        """Reachable support under all actions from all possible start phases."""
-        seeds = {(self.start_pos[0], self.start_pos[1], 0, p) for p in range(self.gate_period)}
-        q: deque[State] = deque(seeds)
-        seen = set(seeds)
-        while q:
-            state = q.popleft()
+        queue: deque[State] = deque([self.start_state])
+        seen = {self.start_state}
+        while queue:
+            state = queue.popleft()
             if self.is_terminal(state):
                 continue
-            for action in Action:
-                for transition in self.transition_outcomes(state, action):
-                    if transition.next_state not in seen:
-                        seen.add(transition.next_state)
-                        q.append(transition.next_state)
-        return seen
+            for action in range(4):
+                for outcome in self.transition_distribution(state, action):
+                    if outcome.next_state not in seen:
+                        seen.add(outcome.next_state)
+                        queue.append(outcome.next_state)
+        ordered = sorted(seen)
+        return ordered if include_terminal else [state for state in ordered if not self.is_terminal(state)]
 
-    def local_signature(self, row: int, col: int, radius: int = 1) -> tuple[str, ...]:
-        signature: list[str] = []
-        for r in range(row - radius, row + radius + 1):
-            for c in range(col - radius, col + radius + 1):
-                if 0 <= r < self.size and 0 <= c < self.size:
-                    signature.append(str(self.grid[r, c]))
-                else:
-                    signature.append("OUT")
-        return tuple(signature)
+    def potential(self, state: State) -> float:
+        """Negative shortest remaining mission length (zero at goal)."""
 
-    def render_ascii(self, state: State | None = None) -> str:
-        state = self.state if state is None else state
-        r_agent, c_agent, has_key, phase = state
-        rows: list[str] = []
-        for r in range(self.size):
-            chars: list[str] = []
-            for c in range(self.size):
-                if (r, c) == (r_agent, c_agent):
-                    chars.append("A")
-                elif (r, c) == self.key_pos and has_key:
-                    chars.append(NORMAL)
-                elif (r, c) == self.gate_pos:
-                    chars.append("g" if self.is_gate_open(phase) else "G")
-                else:
-                    chars.append(str(self.grid[r, c]))
-            rows.append("".join(chars))
-        return "\n".join(rows)
+        if self.is_terminal(state):
+            return 0.0
+        if state not in self._potential_cache:
+            distance = shortest_mission_distance(self.maze, state)
+            if distance is None:
+                distance = 2 * self.maze.height * self.maze.width
+            self._potential_cache[state] = -float(distance)
+        return self._potential_cache[state]
+
+    def _base_transition(self, state: State, executed_action: int) -> tuple[State, float, bool, tuple[str, ...]]:
+        if executed_action not in range(4):
+            raise ValueError(f"Invalid action {executed_action}; expected 0..3")
+        self._validate_state(state)
+        if self.is_terminal(state):
+            return state, 0.0, True, ("terminal_absorbing",)
+        row, col, has_key_int = state
+        has_key = bool(has_key_int)
+        dr, dc = ACTION_DELTAS[executed_action]
+        candidate = (row + dr, col + dc)
+        reward = self.reward_spec.step
+
+        if not (0 <= candidate[0] < self.maze.height and 0 <= candidate[1] < self.maze.width):
+            return state, reward + self.reward_spec.wall_collision, False, ("wall_collision",)
+        tile = self.maze.tile(candidate)
+        if tile == WALL:
+            return state, reward + self.reward_spec.wall_collision, False, ("wall_collision",)
+        if tile == DOOR and not has_key:
+            return state, reward + self.reward_spec.closed_door_attempt, False, ("closed_door_attempt",)
+
+        events: tuple[str, ...]
+        if tile in (PORTAL_A, PORTAL_B):
+            candidate = self.maze.portals[candidate]
+            tile = self.maze.tile(candidate)
+            events = ("teleport",)
+        elif tile == PENALTY:
+            reward += self.reward_spec.penalty_entry
+            events = ("penalty_entry",)
+        elif tile == KEY and not has_key:
+            reward += self.reward_spec.key_collected
+            has_key = True
+            events = ("key_collected",)
+        elif tile == DOOR:
+            reward += self.reward_spec.door_passed
+            events = ("door_passed",)
+        elif tile == GOAL and has_key:
+            reward += self.reward_spec.goal_reached
+            events = ("goal_reached",)
+        else:
+            events = ("normal_move",)
+
+        next_state = candidate[0], candidate[1], int(has_key)
+        terminated = self.is_terminal(next_state)
+        return next_state, reward, terminated, events
+
+    def transition_for_executed_action(self, state: State, executed_action: int) -> Transition:
+        next_state, sparse_reward, terminated, events = self._base_transition(state, executed_action)
+        reward = sparse_reward
+        if self.reward_mode == "shaped":
+            reward += self.reward_spec.shaping_scale * (
+                self.gamma * self.potential(next_state) - self.potential(state)
+            )
+        return Transition(1.0, next_state, float(reward), terminated, events, executed_action)
+
+    def transition_distribution(self, state: State, selected_action: int) -> list[Transition]:
+        """Exact P(s', r | s, a), including 0.8/0.1/0.1 action noise."""
+
+        if selected_action not in range(4):
+            raise ValueError(f"Invalid action {selected_action}; expected 0..3")
+        executed = (selected_action, *PERPENDICULAR_ACTIONS[selected_action])
+        probabilities = (0.8, 0.1, 0.1)
+        aggregate: dict[tuple, float] = defaultdict(float)
+        examples: dict[tuple, Transition] = {}
+        for probability, actual_action in zip(probabilities, executed):
+            outcome = self.transition_for_executed_action(state, actual_action)
+            key = (
+                outcome.next_state,
+                outcome.reward,
+                outcome.terminated,
+                outcome.events,
+                outcome.executed_action,
+            )
+            aggregate[key] += probability
+            examples[key] = outcome
+        return [
+            Transition(
+                probability,
+                examples[key].next_state,
+                examples[key].reward,
+                examples[key].terminated,
+                examples[key].events,
+                examples[key].executed_action,
+            )
+            for key, probability in aggregate.items()
+        ]
+
+    def step(self, selected_action: int) -> tuple[State, float, bool, bool, dict]:
+        if self._episode_done:
+            raise RuntimeError("Episode is done; call reset() before step()")
+        if selected_action not in range(4):
+            raise ValueError(f"Invalid action {selected_action}; expected 0..3")
+        previous_state = self.state
+        perpendicular = PERPENDICULAR_ACTIONS[selected_action]
+        actual_action = int(
+            self.rng.choice((selected_action, *perpendicular), p=(0.8, 0.1, 0.1))
+        )
+        outcome = self.transition_for_executed_action(previous_state, actual_action)
+        self.state = outcome.next_state
+        self.step_count += 1
+        self.total_reward += outcome.reward
+        terminated = outcome.terminated
+        truncated = self.step_count >= self.max_steps and not terminated
+        events = list(outcome.events)
+        if truncated:
+            events.append("max_steps_truncation")
+        self._episode_done = terminated or truncated
+        info = {
+            "episode": self.episode_index,
+            "step": self.step_count,
+            "selected_action": selected_action,
+            "selected_action_name": ACTION_NAMES[selected_action],
+            "executed_action": actual_action,
+            "executed_action_name": ACTION_NAMES[actual_action],
+            "events": events,
+            "has_key": bool(self.state[2]),
+            "total_reward": self.total_reward,
+        }
+        if self.event_logger is not None:
+            self.event_logger.write(
+                {
+                    **info,
+                    "state": list(previous_state),
+                    "next_state": list(self.state),
+                    "reward": outcome.reward,
+                    "terminated": terminated,
+                    "truncated": truncated,
+                    "reward_mode": self.reward_mode,
+                }
+            )
+        return self.state, outcome.reward, terminated, truncated, info
+
+    def configuration(self) -> dict:
+        return {
+            "reward_mode": self.reward_mode,
+            "reward_spec": asdict(self.reward_spec),
+            "gamma": self.gamma,
+            "max_steps": self.max_steps,
+            "slip_probabilities": [0.8, 0.1, 0.1],
+            "state_definition": ["row", "column", "has_key"],
+            "action_names": list(ACTION_NAMES),
+        }

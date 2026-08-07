@@ -1,190 +1,89 @@
-# RL Final Project - Student ID 40400356
+# RL Final Project - Student 40400356
 
-پروژه پایانی درس یادگیری تقویتی: طراحی، مدل‌سازی و تحلیل عامل هوشمند در هزارتوی پویا.
+This repository contains a tabular reinforcement-learning implementation of the dynamic key-door-goal maze. For student number `40400356`, the second-to-last digit is `5`; therefore, the base random seed is `5` and the generated maze size is `16 x 16`.
 
-## خلاصه
+A bidirectional teleporter pair is included as the additional environment mechanic. The teleporter changes the next state, so it is part of the transition model rather than a visual-only feature. It is also shown in the GUI. The agent state is `(row, column, has_key)`, which includes all information needed to determine the next-state distribution and reward.
 
-این مخزن یک هزارتوی تصادفی-پویا را به‌صورت MDP پیاده‌سازی می‌کند و سه روش **Value Iteration**، **Q-Learning** و **SARSA(lambda)** را بدون استفاده از پیاده‌سازی‌های آماده RL مقایسه می‌کند. انتقال یادگیری فقط برای Q-Learning در دو محیط مقصد انجام شده است. رابط گرافیکی، داده خام، مدل‌های ذخیره‌شده، نمودارها، تست‌ها و گزارش نهایی نیز داخل مخزن قرار دارند.
+## Install
 
-## مشخصات اختصاصی پروژه
-
-- شماره دانشجویی: `40400356`
-- رقم یکی‌مانده‌به‌آخر و Seed پایه: `5`
-- اندازه نقشه: `15 + (5 mod 4) = 16`، بنابراین `16 x 16`
-- قابلیت تکمیلی: **دروازه دوره‌ای**
-- فازهای باز دروازه: `0` و `1` از دوره چهارمرحله‌ای
-- نمایش حالت:
-
-```text
-state = (row, column, has_key, gate_phase)
-```
-
-وجود `gate_phase` ضروری است؛ در غیر این صورت احتمال عبور از دروازه با دانستن حالت فعلی و عمل قابل تعیین نیست و خاصیت مارکوف نقض می‌شود.
-
-## مدل انتقال
-
-برای هر عمل انتخابی:
-
-- احتمال اجرای همان عمل: `0.8`
-- احتمال انحراف به هر جهت عمود: `0.1`
-- برخورد با دیوار، در بسته یا دروازه بسته: ماندن در همان مکان با پیشروی فاز زمانی
-
-سقف گام اپیزود برابر سه برابر تعداد خانه‌های قابل عبور است. این سقف به‌صورت TimeLimit و با برچسب `truncated` اعمال می‌شود و جزو MDP ایستای حل‌شده توسط Value Iteration نیست.
-
-## تابع پاداش
-
-دو حالت اجرا می‌شود:
-
-1. `sparse`: پاداش اصلی برای کلید و هدف، همراه هزینه حرکت و جریمه برخورد/خطر.
-2. `shaping`: پاداش sparse به‌اضافه shaping پتانسیل‌محور:
-
-```text
-F(s, s') = eta * [gamma * Phi(s') - Phi(s)]
-```
-
-پتانسیل بر اساس فاصله باقی‌مانده تا کلید و سپس هدف تعریف شده است. مقدار `eta=0.2` پس از stress-test انتخاب شد؛ مقیاس بزرگ‌تر حلقه‌های بازدهی نامناسب ایجاد می‌کرد.
-
-## نصب
-
-Python 3.10 یا جدیدتر پیشنهاد می‌شود.
+Python 3.10 or newer is recommended.
 
 ```bash
 python -m venv .venv
-# Linux/macOS
-source .venv/bin/activate
-# Windows
-# .venv\Scripts\activate
-
-pip install -r requirements.txt
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+python -m pip install -r requirements.txt
 ```
 
-`Tkinter` معمولاً همراه Python نصب است. در برخی توزیع‌های Linux باید بسته `python3-tk` جداگانه نصب شود.
+Tkinter is part of standard Python on Windows and macOS. On minimal Linux installations, install the OS package `python3-tk` if it is missing.
 
-## اجرای اصلی
+## Run
 
-### رابط گرافیکی
+Launch the interactive GUI:
 
 ```bash
 python main.py
-# یا
-python main.py --gui
 ```
 
-کنترل‌های GUI شامل انتخاب الگوریتم/محیط/حالت آموزش یا ارزیابی، شروع، توقف، ادامه، بازنشانی، اجرای مجدد، سرعت انیمیشن و نمایش سیاست است.
-
-### اجرای دمو در ترمینال
+Run a terminal-only demonstration:
 
 ```bash
-python main.py --demo --episodes 2
+python main.py --headless --algorithm vi --episodes 10
+python main.py --headless --algorithm q --episodes 500
+python main.py --headless --algorithm sarsa --episodes 500
 ```
 
-### تولید مجدد نقشه‌های قطعی
+Reproduce the delivered full 10-seed experiment matrix and all figures:
 
 ```bash
-python main.py --generate-maps
+python experiments/run_experiments.py
 ```
 
-### بازتولید کامل آزمایش‌ها
+The files included in `results/` were generated with this full profile. The shorter profile below is intended only for development and quick checks.
+
+Run the shorter 3-seed development/validation profile:
 
 ```bash
-python experiments/run_experiments.py --profile submission
+python experiments/run_experiments.py --config experiments/configs/quick.json
 ```
 
-برای smoke test سریع:
+Regenerate figures without retraining:
 
 ```bash
-python experiments/run_experiments.py --profile quick
+python experiments/run_experiments.py --analysis-only
 ```
 
-تمام نمودارها مستقیماً از CSVهای `results/raw_data/` ساخته می‌شوند. حذف اجرای ناموفق یا انتخاب دستی بهترین Seed انجام نشده است.
-
-## تست‌ها
+## Verify
 
 ```bash
-pytest -q
+python -m unittest discover -s tests -v
+python -m compileall -q .
+python verify_project.py
 ```
 
-تست‌ها موارد زیر را پوشش می‌دهند:
+The automated tests cover map constraints and BFS validity, stochastic transition probabilities, reward and event semantics, termination versus truncation, teleporter behavior, Bellman convergence, exact Q updates, SARSA trace snapshots, reproducibility, evaluation isolation, GUI checkpoint handling, map fingerprints, transfer initialization, negative transfer, clean reruns, and command-line execution. `verify_project.py` also decodes the saved models and figures, checks the expected experiment counts and hashes, and performs a short evaluation of each checkpoint packaged for the GUI.
 
-- Seed و اندازه اختصاصی نقشه
-- اعتبار BFS مسیر شروع به کلید و کلید به هدف
-- جمع احتمال‌های انتقال
-- منطق کلید، در و دروازه دوره‌ای
-- truncation سقف گام
-- به‌روزرسانی دستی Q
-- رفتار lambda=0
-- همگرایی Value Iteration
-- انتقال تعدیل‌شده و انتخابی
+Verified snapshot included in this package:
 
-## ساختار مخزن
+- full 10-seed profile;
+- 71 source summaries and 120 transfer runs;
+- 210,000 source-training and 180,000 transfer-training episode rows;
+- 196 model archives containing 404 finite numeric arrays;
+- 14 decoded and visually inspected figures;
+- 45 unit/integration tests;
+- cross-platform source hash `0e10940d384b2b20ce6008a480e559adebf41c1bbb2dd4fa02b6139d6168ac88`.
 
-```text
-RL_FinalProject_40400356/
-├── environments/
-│   ├── maze.py
-│   ├── generator.py
-│   └── maps/
-├── agents/
-│   ├── common.py
-│   ├── value_iteration.py
-│   ├── q_learning.py
-│   └── sarsa_lambda.py
-├── transfer/transfer_learning.py
-├── gui/
-│   ├── app.py
-│   └── renderer.py
-├── experiments/
-│   ├── run_experiments.py
-│   ├── analysis.py
-│   └── configs/
-├── results/
-│   ├── raw_data/
-│   ├── models/
-│   ├── figures/
-│   └── videos/
-├── tests/
-├── docs/AI_USAGE.md
-├── report.pdf
-├── requirements.txt
-├── README.md
-└── main.py
-```
+The source hash covers the project source files and the JSON configuration and map files. Virtual environments, caches, version-control or IDE metadata, and generated files under `results/` are excluded. This keeps the verification result consistent across Windows, Linux, and macOS.
 
-## فایل‌های کلیدی نتایج
+When the GUI switches from training to evaluation, it keeps the learned Q table and sets epsilon to exactly zero. If there is no model in memory, the program searches for a compatible saved Q-Learning or source-map SARSA checkpoint and checks its algorithm, map, parameters, and map fingerprint before loading it. A SARSA policy for a target map can be trained in the GUI and evaluated immediately afterward. If no compatible checkpoint is available, the GUI blocks evaluation and displays an error instead of using an unrelated model.
 
-- `value_iteration_gamma.csv`: حساسیت gamma و زمان همگرایی
-- `q_learning_epsilon_schedules.csv`: مقایسه کاهش خطی و نمایی epsilon
-- `reward_shaping_comparison.csv`: sparse در برابر shaping
-- `sarsa_lambda_ablation.csv`: آزمایش lambdaهای 0، 0.3، 0.7 و 0.9
-- `three_algorithm_comparison.csv`: زمان، حافظه، موفقیت، کیفیت مسیر و توافق سیاست
-- `transfer_episode_data.csv`: داده اپیزودی تمام سناریوهای انتقال
-- `transfer_summary.csv`: عملکرد اولیه، سرعت یادگیری و عملکرد نهایی
-- `negative_transfer_example.json`: نمونه عددی انتقال منفی
-- `q_learning_manual_update_trace.csv`: بازسازی یک Q-update واقعی
-- `sarsa_lambda_trace_log.csv`: تغییرات delta و E در چند گام
-- `required_event_examples.jsonl`: نمونه همه رویدادهای اجباری
+## Outputs
 
-## نتایج بازتولیدشده اجرای نهایی
+- `environments/maps/`: source, similar-target, and different-target maps in JSON format.
+- `results/raw_data/`: episode logs, evaluation results, traces, validation records, summaries, and the run manifest.
+- `results/models/`: Value Iteration outputs and the saved Q-Learning, SARSA, and transfer checkpoints.
+- `results/figures/`: heatmaps, policies, visit counts, paths, parameter sweeps, policy disagreement, and transfer-learning plots.
+- `docs/REQUIREMENTS_TRACEABILITY.md`: mapping between the project requirements, implementation, and verification evidence.
 
-اجرای `submission` در این نسخه با پنج Seed برای آزمایش‌های اصلی و سه Seed برای انتقال، در مجموع `385.22` ثانیه طول کشید. اعداد زیر میانگین Seedها هستند و از فایل‌های خام مخزن استخراج شده‌اند، نه از بهترین اجرا:
+Each checkpoint stores a semantic fingerprint of its map. The same environment-noise seeds are used when comparing algorithms and transfer scenarios, so differences in the reported policies are not caused by different random draws during evaluation.
 
-- **Value Iteration** با `gamma=0.95` در 354 تکرار و 0.0578 ثانیه همگرا شد؛ نرخ موفقیت ارزیابی 1.000 و میانگین طول مسیر 31.36 گام بود.
-- در **Q-Learning**، برنامه نمایی epsilon با وجود موفقیت نهایی تقریباً مساوی، زودتر به نرخ موفقیت 80 درصد رسید: میانه 397 اپیزود در برابر 470 اپیزود برای کاهش خطی. ارزیابی نهایی Q-Learning نرخ موفقیت 0.9992 و میانگین 36.67 گام داشت.
-- در **SARSA(lambda)**، مقدار `lambda=0.7` بهترین تعادل را ایجاد کرد: موفقیت نهایی آموزشی 0.927، میانه 665 اپیزود تا آستانه 80 درصد و میانگین 71.10 گام. مقدار `lambda=0.9` ناپایدار شد و موفقیت نهایی آن فقط 0.006 بود.
-- میانگین توافق دقیق سیاست با مرجع Value Iteration برای Q-Learning برابر 53.8 درصد و برای SARSA(lambda) برابر 52.3 درصد بود. این معیار به tieهای نزدیک حساس است و همراه نقشه اختلاف و کیفیت rollout تفسیر شده است.
-- در مقصد مشابه، آموزش از صفر در بودجه 800 اپیزود شکست خورد، ولی انتقال کامل و انتقال‌های تعدیل‌شده/انتخابی به موفقیت نهایی 1.0 رسیدند. در مقصد متفاوت، `beta=0.25` سریع‌ترین اصلاح را داشت و در میانه 184 اپیزود به موفقیت 80 درصد رسید، در برابر 247 اپیزود برای کپی کامل و 366 اپیزود برای آموزش از صفر.
-- نمونه انتقال منفی واقعی با regret برابر `17.695803` در `negative_transfer_example.json` ثبت شده است.
-
-نتیجه مهم این است که «محیط مشابه‌تر» الزاماً «آسان‌تر» نیست و ضرب Q در beta مثبت نیز در لحظه شروع argmax را تغییر نمی‌دهد؛ اثر beta پس از شروع آموزش و از طریق اندازه خطای TD ظاهر می‌شود. تحلیل کامل این دو نکته در گزارش آمده است.
-
-## منابع مفهومی
-
-- Sutton, R. S., & Barto, A. G. *Reinforcement Learning: An Introduction*, 2nd ed., 2018.
-- Bellman, R. *Dynamic Programming*, 1957.
-- Watkins, C. J. C. H., & Dayan, P. “Q-learning,” 1992.
-- Rummery, G. A., & Niranjan, M. “On-line Q-learning using connectionist systems,” 1994.
-- Ng, A. Y., Harada, D., & Russell, S. “Policy invariance under reward transformations,” 1999.
-
-## شفافیت ابزارهای کمکی
-
-جزئیات پیشنهادهای دریافت‌شده، اصلاح‌های انجام‌شده و دو نمونه پیشنهاد ناسازگار در `docs/AI_USAGE.md` و جدول متناظر گزارش نهایی ثبت شده است. هیچ کتابخانه آماده‌ای مانند Stable-Baselines یا RLlib استفاده نشده است.
+No prebuilt reinforcement-learning algorithm is used. The tabular updates are implemented with NumPy; pandas and Matplotlib are used only for saving, analyzing, and plotting the experiment results.

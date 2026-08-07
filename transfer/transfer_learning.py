@@ -1,135 +1,172 @@
-"""Q-table transfer strategies and negative-transfer diagnostics."""
+"""Controlled Q-table transfer between source and target mazes."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 import numpy as np
 
-from agents.common import empty_q
-from environments.maze import DynamicMazeEnv, State
+from agents.common import deterministic_greedy_action, q_at, state_index
+from environments.generator import WALL, MazeMap, local_signature
+from environments.maze import ACTION_NAMES, DynamicMazeEnv
 
-TransferMode = Literal["scratch", "full", "scaled", "selective"]
 
-
-@dataclass(frozen=True)
-class TransferSummary:
+@dataclass
+class TransferInitialization:
+    q_table: np.ndarray
+    transferred_state_mask: np.ndarray
     mode: str
     beta: float | None
-    copied_state_count: int
-    transferable_state_count: int
-    copied_fraction: float
+    transferred_state_count: int
 
 
-def initialize_transfer_q(
-    source_env: DynamicMazeEnv,
-    target_env: DynamicMazeEnv,
+def initialize_transfer(
     source_q: np.ndarray,
+    source_map: MazeMap,
+    target_map: MazeMap,
     *,
-    mode: TransferMode,
-    beta: float = 0.5,
-    neighborhood_radius: int = 1,
-) -> tuple[np.ndarray, TransferSummary]:
-    if source_q.shape != empty_q(source_env).shape:
-        raise ValueError("source_q shape does not match source environment")
-    if source_env.size != target_env.size or source_env.gate_period != target_env.gate_period:
-        raise ValueError("this tabular transfer implementation requires compatible grid and phase dimensions")
-    if mode == "scaled" and not (0.0 <= beta <= 1.0):
-        raise ValueError("beta must be in [0, 1]")
+    mode: str,
+    beta: float | None = None,
+) -> TransferInitialization:
+    """Build scratch, full, scaled, or local-structure-selective initialization."""
 
-    target_q = empty_q(target_env)
-    target_valid = set(target_env.valid_positions)
-    source_valid = set(source_env.valid_positions)
-    common_positions = source_valid & target_valid
-    transferable_state_count = len(common_positions) * 2 * target_env.gate_period
-    copied_states = 0
+    if source_q.ndim != 4 or source_q.shape != (2, source_map.height, source_map.width, 4):
+        raise ValueError("source_q shape is incompatible with the source map")
+    if source_map.height != target_map.height or source_map.width != target_map.width:
+        raise ValueError("Tabular transfer requires maps with identical dimensions")
+    if mode not in {"scratch", "full", "scaled", "selective"}:
+        raise ValueError("mode must be scratch, full, scaled, or selective")
+    if mode == "scaled":
+        if beta not in {0.25, 0.50, 0.75}:
+            raise ValueError("scaled transfer beta must be one of {0.25, 0.50, 0.75}")
+    elif beta is not None:
+        raise ValueError("beta is only valid for scaled transfer")
 
-    if mode == "scratch":
-        return target_q, TransferSummary(mode, None, 0, transferable_state_count, 0.0)
-
-    if mode in {"full", "scaled"}:
-        scale = 1.0 if mode == "full" else float(beta)
-        for r, c in common_positions:
-            target_q[r, c, :, :, :] = scale * source_q[r, c, :, :, :]
-            copied_states += 2 * target_env.gate_period
-        return target_q, TransferSummary(
-            mode,
-            None if mode == "full" else float(beta),
-            copied_states,
-            transferable_state_count,
-            copied_states / max(1, transferable_state_count),
-        )
-
-    if mode == "selective":
-        for r, c in common_positions:
-            if source_env.local_signature(r, c, neighborhood_radius) != target_env.local_signature(
-                r, c, neighborhood_radius
-            ):
-                continue
-            target_q[r, c, :, :, :] = source_q[r, c, :, :, :]
-            copied_states += 2 * target_env.gate_period
-        return target_q, TransferSummary(
-            mode,
-            None,
-            copied_states,
-            transferable_state_count,
-            copied_states / max(1, transferable_state_count),
-        )
-
-    raise ValueError(f"unknown transfer mode: {mode}")
+    initialized = np.zeros((2, target_map.height, target_map.width, 4), dtype=np.float64)
+    mask = np.zeros((2, target_map.height, target_map.width), dtype=bool)
+    if mode == "full":
+        initialized[...] = source_q
+        mask[...] = True
+    elif mode == "scaled":
+        initialized[...] = float(beta) * source_q
+        mask[...] = True
+    elif mode == "selective":
+        for row in range(target_map.height):
+            for col in range(target_map.width):
+                position = (row, col)
+                if source_map.tile(position) == WALL or target_map.tile(position) == WALL:
+                    continue
+                if local_signature(source_map, position) == local_signature(target_map, position):
+                    initialized[:, row, col, :] = source_q[:, row, col, :]
+                    mask[:, row, col] = True
+    return TransferInitialization(
+        q_table=initialized,
+        transferred_state_mask=mask,
+        mode=mode,
+        beta=beta,
+        transferred_state_count=int(np.count_nonzero(mask)),
+    )
 
 
-def expected_action_values_from_model(
-    env: DynamicMazeEnv,
-    values: np.ndarray,
-    state: State,
-    gamma: float,
-) -> np.ndarray:
-    result = np.zeros(4, dtype=np.float64)
-    for action in range(4):
-        for transition in env.transition_outcomes(state, action):
-            continuation = 0.0 if transition.terminated else values[transition.next_state]
-            result[action] += transition.probability * (transition.reward + gamma * continuation)
-    return result
+def policy_agreement(q_table: np.ndarray, reference_policy: np.ndarray, env: DynamicMazeEnv) -> dict:
+    agreements = 0
+    total = 0
+    mismatch_states: list[tuple[int, int, int]] = []
+    for state in env.reachable_states(include_terminal=False):
+        has_key, row, col = state_index(state)
+        reference_action = int(reference_policy[has_key, row, col])
+        if reference_action < 0:
+            continue
+        learned_action = deterministic_greedy_action(q_at(q_table, state))
+        total += 1
+        if learned_action == reference_action:
+            agreements += 1
+        else:
+            mismatch_states.append(state)
+    return {
+        "agreement_count": agreements,
+        "state_count": total,
+        "agreement_percent": 100.0 * agreements / total if total else float("nan"),
+        "mismatch_states": mismatch_states,
+    }
 
 
-def find_negative_transfer_example(
+def _neighborhood_rows(maze: MazeMap, row: int, col: int, radius: int = 1) -> list[str]:
+    rows: list[str] = []
+    for dr in range(-radius, radius + 1):
+        chars: list[str] = []
+        for dc in range(-radius, radius + 1):
+            rr, cc = row + dr, col + dc
+            chars.append(maze.grid[rr][cc] if 0 <= rr < maze.height and 0 <= cc < maze.width else WALL)
+        rows.append("".join(chars))
+    return rows
+
+
+def find_negative_transfer_witness(
+    source_q: np.ndarray,
+    source_map: MazeMap,
     target_env: DynamicMazeEnv,
-    transferred_q: np.ndarray,
-    target_optimal_q: np.ndarray,
+    target_vi_policy: np.ndarray,
+    target_vi_q: np.ndarray,
     *,
-    states: set[State] | None = None,
-) -> dict[str, object]:
-    """Find a reachable state with maximal one-step decision regret.
+    trained_target_q: np.ndarray | None = None,
+) -> dict | None:
+    """Find a changed local state where transferred greed is suboptimal.
 
-    Regret is measured using the target-environment optimal Q values, not the
-    transferred table itself.  This makes the diagnosis environment-grounded.
+    Candidates are ranked by exact target-model action regret, not selected by
+    final training performance.
     """
-    candidates = states or target_env.reachable_states()
-    best: dict[str, object] | None = None
-    for state in candidates:
-        if target_env.is_terminal(state):
+
+    candidates: list[tuple[bool, float, tuple[int, int, int], int, int]] = []
+    for state in target_env.reachable_states(include_terminal=False):
+        has_key, row, col = state_index(state)
+        if source_map.tile((row, col)) == WALL:
             continue
-        transferred_action = int(np.argmax(transferred_q[state]))
-        optimal_action = int(np.argmax(target_optimal_q[state]))
-        if transferred_action == optimal_action:
+        if local_signature(source_map, (row, col)) == local_signature(target_env.maze, (row, col)):
             continue
-        optimal_values = np.asarray(target_optimal_q[state], dtype=float)
-        regret = float(optimal_values[optimal_action] - optimal_values[transferred_action])
-        if regret <= 1e-10:
+        values = q_at(source_q, state)
+        if np.ptp(values) <= 1e-10:
             continue
-        record = {
-            "state": state,
-            "transferred_action": transferred_action,
-            "target_optimal_action": optimal_action,
-            "regret": regret,
-            "transferred_q_values": np.asarray(transferred_q[state], dtype=float).tolist(),
-            "target_optimal_q_values": optimal_values.tolist(),
-            "local_signature": target_env.local_signature(state[0], state[1]),
-            "tile": str(target_env.grid[state[0], state[1]]),
-        }
-        if best is None or regret > float(best["regret"]):
-            best = record
-    if best is None:
-        raise RuntimeError("no negative-transfer state found")
-    return best
+        transferred_action = deterministic_greedy_action(values)
+        optimal_action = int(target_vi_policy[has_key, row, col])
+        if optimal_action < 0 or transferred_action == optimal_action:
+            continue
+        model_q = target_vi_q[has_key, row, col]
+        if not np.all(np.isfinite(model_q)):
+            continue
+        regret = float(model_q[optimal_action] - model_q[transferred_action])
+        if regret > 1e-10:
+            corrected = False
+            if trained_target_q is not None:
+                corrected = deterministic_greedy_action(q_at(trained_target_q, state)) == optimal_action
+            candidates.append((corrected, regret, state, transferred_action, optimal_action))
+    if not candidates:
+        return None
+    # When post-training values are available, prefer a witness that actually
+    # demonstrates the required correction; within that class maximize exact
+    # target-model regret. Fall back to the strongest uncorrected witness only
+    # if target training corrected none of them.
+    corrected, regret, state, transferred_action, optimal_action = max(
+        candidates, key=lambda item: (item[0], item[1])
+    )
+    has_key, row, col = state_index(state)
+    after_values = None if trained_target_q is None else q_at(trained_target_q, state).tolist()
+    after_action = None if trained_target_q is None else deterministic_greedy_action(q_at(trained_target_q, state))
+    return {
+        "state": list(state),
+        "position": [row, col],
+        "has_key": bool(has_key),
+        "source_neighborhood": _neighborhood_rows(source_map, row, col),
+        "target_neighborhood": _neighborhood_rows(target_env.maze, row, col),
+        "source_q_values": q_at(source_q, state).tolist(),
+        "transferred_action": transferred_action,
+        "transferred_action_name": ACTION_NAMES[transferred_action],
+        "target_optimal_action": optimal_action,
+        "target_optimal_action_name": ACTION_NAMES[optimal_action],
+        "target_model_q_values": target_vi_q[has_key, row, col].tolist(),
+        "exact_one_state_regret": regret,
+        "trained_target_q_values": after_values,
+        "trained_target_action": after_action,
+        "trained_target_action_name": None if after_action is None else ACTION_NAMES[after_action],
+        "behavior_corrected": None if after_action is None else bool(after_action == optimal_action),
+    }

@@ -1,0 +1,7 @@
+{
+  "compared_reachable_states": 168,
+  "method": "F(s,s') = shaping_scale * (gamma * Phi(s') - Phi(s))",
+  "potential": "negative deterministic BFS mission distance",
+  "repeatable_door_bonus": 0.0,
+  "sparse_vs_shaped_policy_agreement": 1.0
+}

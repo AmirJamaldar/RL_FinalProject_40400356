@@ -1,0 +1,42 @@
+{
+  "profile": "full_experiment",
+  "student_id": "40400356",
+  "seeds": [5, 17, 29, 41, 53, 65, 77, 89, 101, 113],
+  "gamma": 0.95,
+  "vi_gammas": [0.8, 0.95, 0.99],
+  "vi_threshold": 1e-10,
+  "vi_max_iterations": 20000,
+  "q_episodes": 3000,
+  "q_alpha": 0.15,
+  "sarsa_episodes": 3000,
+  "sarsa_alpha": 0.12,
+  "sarsa_lambdas": [0.0, 0.3, 0.7, 0.9],
+  "sarsa_trace_type": "replacing",
+  "transfer_episodes": 1500,
+  "transfer_betas": [0.25, 0.5, 0.75],
+  "evaluation_episodes": 200,
+  "initial_transfer_evaluation_episodes": 100,
+  "success_window": 100,
+  "success_threshold": 0.8,
+  "epsilon": {
+    "start": 1.0,
+    "end": 0.02,
+    "decay_episodes": 2400
+  },
+  "transfer_epsilon": {
+    "start": 0.4,
+    "end": 0.02,
+    "decay_episodes": 1200
+  },
+  "reward": {
+    "step": -1.0,
+    "wall_collision": -4.0,
+    "penalty_entry": -10.0,
+    "key_collected": 30.0,
+    "closed_door_attempt": -7.0,
+    "door_passed": 0.0,
+    "goal_reached": 100.0,
+    "shaping_scale": 0.25
+  },
+  "max_steps_multiplier": 3
+}

@@ -1,0 +1,224 @@
+[
+  {
+    "algorithm": "q_learning_linear",
+    "exact_action_regret": 5.4030890811881065,
+    "learned_action": 0,
+    "learned_action_name": "up",
+    "learned_q_values": [
+      17.510925137518498,
+      6.648106077806648,
+      1.3416999862503385,
+      6.264036332617563
+    ],
+    "local_neighborhood": [
+      "#",
+      ".",
+      "#",
+      "#",
+      ".",
+      "#",
+      "#",
+      ".",
+      "#"
+    ],
+    "model_q_values": [
+      19.598530737424728,
+      25.001619818612834,
+      19.835547940265936,
+      19.835547940265936
+    ],
+    "state": [
+      6,
+      1,
+      0
+    ],
+    "tile": ".",
+    "value_iteration_action": 1,
+    "value_iteration_action_name": "down"
+  },
+  {
+    "algorithm": "q_learning_linear",
+    "exact_action_regret": 5.175742911200079,
+    "learned_action": 0,
+    "learned_action_name": "up",
+    "learned_q_values": [
+      19.449723493905054,
+      7.941592485001935,
+      12.057223301856213,
+      12.529662579046688
+    ],
+    "local_neighborhood": [
+      "#",
+      ".",
+      ".",
+      "#",
+      ".",
+      ".",
+      "#",
+      ".",
+      "."
+    ],
+    "model_q_values": [
+      21.719686904427064,
+      26.895429815627143,
+      21.63696444356345,
+      22.930368926009585
+    ],
+    "state": [
+      7,
+      3,
+      0
+    ],
+    "tile": ".",
+    "value_iteration_action": 1,
+    "value_iteration_action_name": "down"
+  },
+  {
+    "algorithm": "q_learning_linear",
+    "exact_action_regret": 4.345798192121688,
+    "learned_action": 1,
+    "learned_action_name": "down",
+    "learned_q_values": [
+      1.3070320019740669,
+      7.150550828160688,
+      -2.238958178343021,
+      -0.48636981621736974
+    ],
+    "local_neighborhood": [
+      "#",
+      ".",
+      ".",
+      "#",
+      ".",
+      ".",
+      "#",
+      ".",
+      "#"
+    ],
+    "model_q_values": [
+      17.10810647148828,
+      12.762308279366593,
+      12.235398747263453,
+      15.34912538818492
+    ],
+    "state": [
+      8,
+      3,
+      1
+    ],
+    "tile": ".",
+    "value_iteration_action": 0,
+    "value_iteration_action_name": "up"
+  },
+  {
+    "algorithm": "sarsa_lambda_0.7",
+    "exact_action_regret": 6.289233215362518,
+    "learned_action": 0,
+    "learned_action_name": "up",
+    "learned_q_values": [
+      -27.721236696441224,
+      -30.48333202636481,
+      -30.80784704823336,
+      -31.71405236816009
+    ],
+    "local_neighborhood": [
+      "#",
+      ".",
+      ".",
+      "#",
+      ".",
+      "#",
+      ".",
+      ".",
+      "#"
+    ],
+    "model_q_values": [
+      27.67108259416221,
+      33.96031580952473,
+      28.319399814747108,
+      28.319399814747108
+    ],
+    "state": [
+      9,
+      3,
+      0
+    ],
+    "tile": ".",
+    "value_iteration_action": 1,
+    "value_iteration_action_name": "down"
+  },
+  {
+    "algorithm": "sarsa_lambda_0.7",
+    "exact_action_regret": 5.749313355363334,
+    "learned_action": 0,
+    "learned_action_name": "up",
+    "learned_q_values": [
+      -25.790485448153653,
+      -28.390572579366648,
+      -30.49290018029494,
+      -25.967596571744657
+    ],
+    "local_neighborhood": [
+      "#",
+      ".",
+      ".",
+      "#",
+      ".",
+      ".",
+      "#",
+      ".",
+      "#"
+    ],
+    "model_q_values": [
+      24.492295316153808,
+      30.24160867151714,
+      24.802418424741795,
+      25.26932249426457
+    ],
+    "state": [
+      8,
+      3,
+      0
+    ],
+    "tile": ".",
+    "value_iteration_action": 1,
+    "value_iteration_action_name": "down"
+  },
+  {
+    "algorithm": "sarsa_lambda_0.7",
+    "exact_action_regret": 5.4030890811881065,
+    "learned_action": 0,
+    "learned_action_name": "up",
+    "learned_q_values": [
+      -33.28137423153659,
+      -34.604201185313464,
+      -36.93949389081576,
+      -36.40967872621142
+    ],
+    "local_neighborhood": [
+      "#",
+      ".",
+      "#",
+      "#",
+      ".",
+      "#",
+      "#",
+      ".",
+      "#"
+    ],
+    "model_q_values": [
+      19.598530737424728,
+      25.001619818612834,
+      19.835547940265936,
+      19.835547940265936
+    ],
+    "state": [
+      6,
+      1,
+      0
+    ],
+    "tile": ".",
+    "value_iteration_action": 1,
+    "value_iteration_action_name": "down"
+  }
+]

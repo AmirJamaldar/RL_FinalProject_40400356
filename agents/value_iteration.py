@@ -1,14 +1,16 @@
 """Independent tabular Value Iteration implementation."""
+
 from __future__ import annotations
 
-import json
-import time
 from dataclasses import dataclass
+import json
 from pathlib import Path
+import time
 
 import numpy as np
 
-from environments.maze import Action, DynamicMazeEnv, State
+from environments.maze import DynamicMazeEnv, State
+from .common import state_index
 
 
 @dataclass
@@ -17,121 +19,126 @@ class ValueIterationResult:
     q_values: np.ndarray
     policy: np.ndarray
     iterations: int
-    converged: bool
-    final_delta: float
+    delta_history: list[float]
     runtime_seconds: float
+    converged: bool
+    bellman_backups: int
     gamma: float
-    tolerance: float
+    threshold: float
+
+    @property
+    def memory_bytes(self) -> int:
+        return int(self.values.nbytes + self.q_values.nbytes + self.policy.nbytes)
 
 
-def _empty_arrays(env: DynamicMazeEnv) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    shape = (env.size, env.size, 2, env.gate_period)
-    values = np.zeros(shape, dtype=np.float64)
-    q_values = np.zeros(shape + (env.action_space_n,), dtype=np.float64)
-    policy = np.full(shape, -1, dtype=np.int8)
-    return values, q_values, policy
-
-
-def state_action_value(env: DynamicMazeEnv, values: np.ndarray, state: State, action: int, gamma: float) -> float:
-    total = 0.0
-    for transition in env.transition_outcomes(state, action):
-        continuation = 0.0 if transition.terminated else values[transition.next_state]
-        total += transition.probability * (transition.reward + gamma * continuation)
-    return float(total)
+def action_values(env: DynamicMazeEnv, values: np.ndarray, state: State, gamma: float) -> np.ndarray:
+    result = np.empty(4, dtype=np.float64)
+    for action in range(4):
+        expected = 0.0
+        for outcome in env.transition_distribution(state, action):
+            continuation = 0.0
+            if not outcome.terminated:
+                has_key, row, col = state_index(outcome.next_state)
+                continuation = values[has_key, row, col]
+            expected += outcome.probability * (outcome.reward + gamma * continuation)
+        result[action] = expected
+    return result
 
 
 def value_iteration(
     env: DynamicMazeEnv,
     *,
-    gamma: float = 0.95,
-    tolerance: float = 1e-8,
+    gamma: float | None = None,
+    threshold: float = 1e-8,
     max_iterations: int = 10_000,
 ) -> ValueIterationResult:
-    """Run synchronous Value Iteration using a precomputed tabular model.
+    """Synchronous Bellman optimality updates until max-norm convergence."""
 
-    The Bellman backup itself is vectorized, but the transition model is still
-    generated independently from ``DynamicMazeEnv.transition_outcomes``.
-    No RL or planning library is used.
-    """
-    if not np.isclose(env.gamma, gamma):
-        env = env.clone(gamma=gamma)
-    values, q_values, policy = _empty_arrays(env)
-    states = env.states()
-    state_to_index = {state: i for i, state in enumerate(states)}
-    n_states = len(states)
-    max_branches = 3
-    probabilities = np.zeros((n_states, env.action_space_n, max_branches), dtype=np.float64)
-    rewards = np.zeros_like(probabilities)
-    next_indices = np.zeros((n_states, env.action_space_n, max_branches), dtype=np.int32)
-    nonterminal = np.zeros_like(probabilities)
-    terminal_mask = np.array([env.is_terminal(state) for state in states], dtype=bool)
-
-    for i, state in enumerate(states):
-        for action in Action:
-            outcomes = env.transition_outcomes(state, action)
-            for branch, transition in enumerate(outcomes):
-                probabilities[i, int(action), branch] = transition.probability
-                rewards[i, int(action), branch] = transition.reward
-                next_indices[i, int(action), branch] = state_to_index[transition.next_state]
-                nonterminal[i, int(action), branch] = 0.0 if transition.terminated else 1.0
-
-    v = np.zeros(n_states, dtype=np.float64)
+    discount = env.gamma if gamma is None else float(gamma)
+    if not 0.0 <= discount < 1.0:
+        raise ValueError("gamma must lie in [0, 1)")
+    if env.reward_mode == "shaped" and not np.isclose(discount, env.gamma):
+        raise ValueError("Potential shaping gamma must match Value Iteration gamma")
+    if threshold <= 0 or max_iterations <= 0:
+        raise ValueError("threshold and max_iterations must be positive")
+    states = env.reachable_states(include_terminal=False)
+    values = np.zeros(env.value_shape, dtype=np.float64)
+    deltas: list[float] = []
+    backups = 0
     started = time.perf_counter()
     converged = False
-    delta = float("inf")
-    iteration = 0
     for iteration in range(1, max_iterations + 1):
-        continuation = v[next_indices]
-        q_table = np.sum(probabilities * (rewards + gamma * nonterminal * continuation), axis=2)
-        new_v = np.max(q_table, axis=1)
-        new_v[terminal_mask] = 0.0
-        delta = float(np.max(np.abs(new_v - v)))
-        v = new_v
-        if delta < tolerance:
+        previous = values.copy()
+        delta = 0.0
+        for state in states:
+            has_key, row, col = state_index(state)
+            updated = float(np.max(action_values(env, previous, state, discount)))
+            values[has_key, row, col] = updated
+            delta = max(delta, abs(updated - previous[has_key, row, col]))
+            backups += 4
+        deltas.append(delta)
+        if not np.all(np.isfinite(values)):
+            raise FloatingPointError("Non-finite values encountered in Value Iteration")
+        if delta < threshold:
             converged = True
             break
-
-    final_continuation = v[next_indices]
-    final_q = np.sum(probabilities * (rewards + gamma * nonterminal * final_continuation), axis=2)
-    final_q[terminal_mask, :] = 0.0
-    final_policy = np.argmax(final_q, axis=1).astype(np.int8)
-    final_policy[terminal_mask] = -1
-
-    for i, state in enumerate(states):
-        values[state] = v[i]
-        q_values[state] = final_q[i]
-        policy[state] = final_policy[i]
-
     runtime = time.perf_counter() - started
+
+    policy = np.full(env.value_shape, -1, dtype=np.int8)
+    # Unreachable/wall entries remain zero and are excluded by the policy mask.
+    # Finite padding keeps checkpoints safe to load and compare byte-for-byte.
+    q_values = np.zeros(env.q_shape, dtype=np.float64)
+    for state in states:
+        has_key, row, col = state_index(state)
+        q = action_values(env, values, state, discount)
+        q_values[has_key, row, col] = q
+        policy[has_key, row, col] = int(np.argmax(q))
+    terminal_key, terminal_row, terminal_col = state_index(env.terminal_state)
+    values[terminal_key, terminal_row, terminal_col] = 0.0
+    policy[terminal_key, terminal_row, terminal_col] = -1
     return ValueIterationResult(
         values=values,
         q_values=q_values,
         policy=policy,
         iterations=iteration,
+        delta_history=deltas,
+        runtime_seconds=runtime,
         converged=converged,
-        final_delta=float(delta),
-        runtime_seconds=float(runtime),
-        gamma=float(gamma),
-        tolerance=float(tolerance),
+        bellman_backups=backups,
+        gamma=discount,
+        threshold=threshold,
     )
 
 
-def save_result(result: ValueIterationResult, path: str | Path) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+def bellman_residual(env: DynamicMazeEnv, result: ValueIterationResult) -> float:
+    residual = 0.0
+    for state in env.reachable_states(include_terminal=False):
+        has_key, row, col = state_index(state)
+        target = np.max(action_values(env, result.values, state, result.gamma))
+        residual = max(residual, abs(float(target) - result.values[has_key, row, col]))
+    return float(residual)
+
+
+def save_value_iteration(path: str | Path, result: ValueIterationResult, metadata: dict) -> Path:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload_metadata = {
+        **metadata,
+        "iterations": result.iterations,
+        "runtime_seconds": result.runtime_seconds,
+        "converged": result.converged,
+        "bellman_backups": result.bellman_backups,
+        "gamma": result.gamma,
+        "threshold": result.threshold,
+    }
+    temporary = destination.with_suffix(destination.suffix + ".tmp.npz")
     np.savez_compressed(
-        path,
+        temporary,
         values=result.values,
         q_values=result.q_values,
         policy=result.policy,
-        metadata=json.dumps(
-            {
-                "iterations": result.iterations,
-                "converged": result.converged,
-                "final_delta": result.final_delta,
-                "runtime_seconds": result.runtime_seconds,
-                "gamma": result.gamma,
-                "tolerance": result.tolerance,
-            }
-        ),
+        delta_history=np.asarray(result.delta_history),
+        metadata_json=np.array(json.dumps(payload_metadata, sort_keys=True)),
     )
+    temporary.replace(destination)
+    return destination

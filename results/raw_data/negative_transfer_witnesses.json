@@ -1,0 +1,104 @@
+[
+  {
+    "behavior_corrected": true,
+    "exact_one_state_regret": 6.178305891056972,
+    "has_key": false,
+    "position": [
+      14,
+      5
+    ],
+    "scenario": "full",
+    "seed": 5,
+    "source_neighborhood": [
+      "...",
+      "..#",
+      "###"
+    ],
+    "source_q_values": [
+      42.79303784656496,
+      39.27736282360335,
+      47.38546039892273,
+      39.79095229618323
+    ],
+    "state": [
+      14,
+      5,
+      0
+    ],
+    "target": "similar",
+    "target_model_q_values": [
+      44.968420367016286,
+      37.90749934866546,
+      38.790114475959314,
+      38.790114475959314
+    ],
+    "target_neighborhood": [
+      "...",
+      "#.#",
+      "###"
+    ],
+    "target_optimal_action": 0,
+    "target_optimal_action_name": "up",
+    "trained_target_action": 0,
+    "trained_target_action_name": "up",
+    "trained_target_q_values": [
+      45.69742915582033,
+      37.1453300120201,
+      37.621014869426986,
+      37.82858202534316
+    ],
+    "transferred_action": 2,
+    "transferred_action_name": "left"
+  },
+  {
+    "behavior_corrected": true,
+    "exact_one_state_regret": 10.834760279659285,
+    "has_key": false,
+    "position": [
+      13,
+      4
+    ],
+    "scenario": "full",
+    "seed": 5,
+    "source_neighborhood": [
+      ".X.",
+      "K..",
+      "#.."
+    ],
+    "source_q_values": [
+      44.31014855849722,
+      44.80979305354885,
+      57.23617203312073,
+      44.54529956074845
+    ],
+    "state": [
+      13,
+      4,
+      0
+    ],
+    "target": "different",
+    "target_model_q_values": [
+      47.11791699487679,
+      56.60798627537714,
+      52.86668558560711,
+      63.70144586526639
+    ],
+    "target_neighborhood": [
+      ".X#",
+      "..K",
+      ".##"
+    ],
+    "target_optimal_action": 3,
+    "target_optimal_action_name": "right",
+    "trained_target_action": 3,
+    "trained_target_action_name": "right",
+    "trained_target_q_values": [
+      38.98401962213894,
+      42.38944068888312,
+      40.24946479681678,
+      67.02794309360293
+    ],
+    "transferred_action": 2,
+    "transferred_action_name": "left"
+  }
+]

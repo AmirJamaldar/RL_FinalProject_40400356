@@ -1,7 +1,8 @@
 __pycache__/
 *.py[cod]
-.pytest_cache/
 .venv/
+.idea/
+.vscode/
 .DS_Store
-*.tmp
-results/videos/*.mp4
+.pytest_cache/
+.coverage

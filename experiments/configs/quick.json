@@ -1,0 +1,42 @@
+{
+  "profile": "quick_verified",
+  "student_id": "40400356",
+  "seeds": [5, 17, 29],
+  "gamma": 0.95,
+  "vi_gammas": [0.8, 0.95, 0.99],
+  "vi_threshold": 1e-8,
+  "vi_max_iterations": 10000,
+  "q_episodes": 500,
+  "q_alpha": 0.15,
+  "sarsa_episodes": 500,
+  "sarsa_alpha": 0.12,
+  "sarsa_lambdas": [0.0, 0.3, 0.7, 0.9],
+  "sarsa_trace_type": "replacing",
+  "transfer_episodes": 300,
+  "transfer_betas": [0.25, 0.5, 0.75],
+  "evaluation_episodes": 50,
+  "initial_transfer_evaluation_episodes": 30,
+  "success_window": 50,
+  "success_threshold": 0.8,
+  "epsilon": {
+    "start": 1.0,
+    "end": 0.05,
+    "decay_episodes": 400
+  },
+  "transfer_epsilon": {
+    "start": 0.4,
+    "end": 0.05,
+    "decay_episodes": 240
+  },
+  "reward": {
+    "step": -1.0,
+    "wall_collision": -4.0,
+    "penalty_entry": -10.0,
+    "key_collected": 30.0,
+    "closed_door_attempt": -7.0,
+    "door_passed": 0.0,
+    "goal_reached": 100.0,
+    "shaping_scale": 0.25
+  },
+  "max_steps_multiplier": 3
+}
